@@ -2,6 +2,7 @@
 <html>
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Voucher Scratch Card</title>
 
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
@@ -11,17 +12,20 @@
 <style>
 
 body{
-font-family:Arial;
+font-family:Arial, sans-serif;
 display:flex;
 justify-content:center;
 align-items:center;
 height:100vh;
 background:#f5f5f5;
 margin:0;
+padding:20px;
+box-sizing:border-box;
 }
 
 .card{
-width:320px;
+width:90vw;
+max-width:320px;
 height:200px;
 background:#3F6285;
 color:white;
@@ -33,6 +37,7 @@ align-items:center;
 font-size:28px;
 position:relative;
 overflow:hidden;
+box-shadow:0 4px 6px rgba(0,0,0,0.1);
 }
 
 canvas{
@@ -50,15 +55,87 @@ font-size:50px;
 font-weight:bold;
 }
 
+.message{
+position:absolute;
+top:0;
+left:0;
+width:100%;
+height:100%;
+background:rgba(0,0,0,0.8);
+color:white;
+display:flex;
+flex-direction:column;
+justify-content:center;
+align-items:center;
+z-index:10;
+text-align:center;
+padding:20px;
+box-sizing:border-box;
+display:none;
+}
+
+.message h2{
+margin:0 0 10px 0;
+font-size:24px;
+}
+
+.message p{
+margin:0;
+font-size:16px;
+line-height:1.4;
+}
+
+.hidden{
+display:none !important;
+}
+
+/* Mobile-specific styles */
+@media (max-width: 480px) {
+    .card{
+        width:100%;
+        height:180px;
+    }
+    
+    .discount{
+        font-size:40px;
+    }
+    
+    .title{
+        font-size:18px;
+    }
+    
+    .message{
+        padding:15px;
+    }
+    
+    .message h2{
+        font-size:20px;
+    }
+    
+    .message p{
+        font-size:14px;
+    }
+}
+
 </style>
 </head>
 
 <body>
 
 <div class="card">
-<div class="title" id="title">Loading...</div>
-<div class="discount" id="discount"></div>
-<canvas id="scratch"></canvas>
+    <div class="title" id="title">Loading...</div>
+    <div class="discount" id="discount"></div>
+    <canvas id="scratch"></canvas>
+    
+    <div class="message" id="scratchMessage">
+        <h2>Scratching...</h2>
+        <p>Please continue scratching to reveal your voucher</p>
+    </div>
+    
+    <div class="message" id="successMessage">
+        <h2>Voucher Revealed!</h2>
+        <p>Your voucher has been successfully claimed</p>
+    </div>
 </div>
 
 <script>
@@ -74,6 +151,8 @@ const db=firebase.firestore()
 
 let voucherId=null
 let voucherRef=null
+let isScratching=false
+let hasClaimed=false
 
 auth.signInAnonymously()
 
@@ -120,13 +199,16 @@ ctx.fillRect(0,0,canvas.width,canvas.height)
 
 ctx.globalCompositeOperation="destination-out"
 
+// Auto-scratch when 30% is reached
+let autoScratchInterval=null
+
 let scratching=false
 
-canvas.addEventListener("mousedown",()=>scratching=true)
+canvas.addEventListener("mousedown",()=>{scratching=true;showScratchMessage()})
 canvas.addEventListener("mouseup",()=>{scratching=false;checkScratch()})
 canvas.addEventListener("mousemove",scratch)
 
-canvas.addEventListener("touchstart",()=>scratching=true)
+canvas.addEventListener("touchstart",()=>{scratching=true;showScratchMessage()})
 canvas.addEventListener("touchend",()=>{scratching=false;checkScratch()})
 canvas.addEventListener("touchmove",(e)=>{
 scratch(e.touches[0])
@@ -134,7 +216,7 @@ scratch(e.touches[0])
 
 function scratch(e){
 
-if(!scratching)return
+if(!scratching || hasClaimed)return
 
 const rect=canvas.getBoundingClientRect()
 
@@ -145,14 +227,12 @@ ctx.beginPath()
 ctx.arc(x,y,20,0,Math.PI*2)
 ctx.fill()
 
-}
+checkScratch()
 
 }
 
 function checkScratch(){
-
-const canvas=document.getElementById("scratch")
-const ctx=canvas.getContext("2d")
+if(hasClaimed)return
 
 const pixels=ctx.getImageData(0,0,canvas.width,canvas.height)
 
@@ -164,9 +244,53 @@ if(pixels.data[i]==0)transparent++
 
 const percent=transparent/(pixels.data.length/4)
 
-if(percent>0.35){
+if(percent>0.30){
+if(!hasClaimed){
+hasClaimed=true
+autoScratch(ctx, canvas)
 claimVoucher()
 }
+}
+}
+
+function showScratchMessage(){
+document.getElementById("scratchMessage").style.display="flex"
+}
+
+function hideScratchMessage(){
+document.getElementById("scratchMessage").style.display="none"
+}
+
+function autoScratch(ctx, canvas){
+// Auto-scratch the remaining area
+const totalPixels=canvas.width*canvas.height
+let scratchedPixels=0
+
+const autoScratchInterval=setInterval(()=>{
+if(scratchedPixels>=totalPixels*0.95){
+clearInterval(autoScratchInterval)
+hideScratchMessage()
+showSuccessMessage()
+return
+}
+
+// Random scratch points
+for(let i=0;i<50;i++){
+const x=Math.random()*canvas.width
+const y=Math.random()*canvas.height
+ctx.beginPath()
+ctx.arc(x,y,15,0,Math.PI*2)
+ctx.fill()
+}
+
+scratchedPixels+=2500 // Approximate pixels scratched per interval
+},50)
+}
+
+function showSuccessMessage(){
+document.getElementById("successMessage").style.display="flex"
+}
+
 }
 
 async function claimVoucher(){
@@ -180,7 +304,7 @@ await db.runTransaction(async(t)=>{
 const doc=await t.get(voucherRef)
 
 if(doc.data().used){
-alert("Voucher already used")
+// Voucher already used - this shouldn't happen with our auto-scratch, but just in case
 return
 }
 
@@ -192,7 +316,8 @@ claimedAt:firebase.firestore.FieldValue.serverTimestamp()
 
 })
 
-alert("Voucher claimed!")
+// Remove alert - voucher is automatically claimed
+// alert("Voucher claimed!")
 
 }catch(e){
 console.log(e)
