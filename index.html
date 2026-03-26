@@ -55,40 +55,6 @@ font-size:50px;
 font-weight:bold;
 }
 
-.message{
-position:absolute;
-top:0;
-left:0;
-width:100%;
-height:100%;
-background:rgba(0,0,0,0.8);
-color:white;
-display:flex;
-flex-direction:column;
-justify-content:center;
-align-items:center;
-z-index:10;
-text-align:center;
-padding:20px;
-box-sizing:border-box;
-display:none;
-}
-
-.message h2{
-margin:0 0 10px 0;
-font-size:24px;
-}
-
-.message p{
-margin:0;
-font-size:16px;
-line-height:1.4;
-}
-
-.hidden{
-display:none !important;
-}
-
 /* Mobile-specific styles */
 @media (max-width: 480px) {
     .card{
@@ -103,18 +69,6 @@ display:none !important;
     .title{
         font-size:18px;
     }
-    
-    .message{
-        padding:15px;
-    }
-    
-    .message h2{
-        font-size:20px;
-    }
-    
-    .message p{
-        font-size:14px;
-    }
 }
 
 </style>
@@ -127,15 +81,6 @@ display:none !important;
     <div class="discount" id="discount"></div>
     <canvas id="scratch"></canvas>
     
-    <div class="message" id="scratchMessage">
-        <h2>Scratching...</h2>
-        <p>Please continue scratching to reveal your voucher</p>
-    </div>
-    
-    <div class="message" id="successMessage">
-        <h2>Voucher Revealed!</h2>
-        <p>Your voucher has been successfully claimed</p>
-    </div>
 </div>
 
 <script>
@@ -160,28 +105,11 @@ auth.onAuthStateChanged(async(user)=>{
 
 if(!user)return
 
-const snapshot=await db
-.collection("hotels")
-.doc("HOTEL_001")
-.collection("vouchers")
-.get()
+// Set initial loading state
+document.getElementById("title").innerText="Loading..."
+document.getElementById("discount").innerText=""
 
-if(snapshot.empty){
-document.getElementById("title").innerText="No vouchers left"
-return
-}
-
-const docs=snapshot.docs
-const random=docs[Math.floor(Math.random()*docs.length)]
-
-voucherId=random.id
-voucherRef=random.ref
-
-const data=random.data()
-
-document.getElementById("title").innerText=data.title
-document.getElementById("discount").innerText=data.discount+"%"
-
+// Initialize scratch card immediately for interaction
 initScratch()
 
 })
@@ -204,11 +132,11 @@ let autoScratchInterval=null
 
 let scratching=false
 
-canvas.addEventListener("mousedown",()=>{scratching=true;showScratchMessage()})
+canvas.addEventListener("mousedown",()=>{scratching=true})
 canvas.addEventListener("mouseup",()=>{scratching=false;checkScratch()})
 canvas.addEventListener("mousemove",scratch)
 
-canvas.addEventListener("touchstart",()=>{scratching=true;showScratchMessage()})
+canvas.addEventListener("touchstart",()=>{scratching=true})
 canvas.addEventListener("touchend",()=>{scratching=false;checkScratch()})
 canvas.addEventListener("touchmove",(e)=>{
 scratch(e.touches[0])
@@ -253,42 +181,30 @@ claimVoucher()
 }
 }
 
-function showScratchMessage(){
-document.getElementById("scratchMessage").style.display="flex"
-}
-
-function hideScratchMessage(){
-document.getElementById("scratchMessage").style.display="none"
-}
-
 function autoScratch(ctx, canvas){
-// Auto-scratch the remaining area
-const totalPixels=canvas.width*canvas.height
-let scratchedPixels=0
-
+// Auto-scratch the remaining area continuously
 const autoScratchInterval=setInterval(()=>{
-if(scratchedPixels>=totalPixels*0.95){
-clearInterval(autoScratchInterval)
-hideScratchMessage()
-showSuccessMessage()
-return
-}
-
-// Random scratch points
-for(let i=0;i<50;i++){
+// Random scratch points for continuous effect
+for(let i=0;i<30;i++){
 const x=Math.random()*canvas.width
 const y=Math.random()*canvas.height
 ctx.beginPath()
-ctx.arc(x,y,15,0,Math.PI*2)
+ctx.arc(x,y,12,0,Math.PI*2)
 ctx.fill()
 }
 
-scratchedPixels+=2500 // Approximate pixels scratched per interval
-},50)
+// Check if fully revealed
+const pixels=ctx.getImageData(0,0,canvas.width,canvas.height)
+let transparent=0
+for(let i=3;i<pixels.data.length;i+=4){
+if(pixels.data[i]==0)transparent++
 }
+const percent=transparent/(pixels.data.length/4)
 
-function showSuccessMessage(){
-document.getElementById("successMessage").style.display="flex"
+if(percent>0.95){
+clearInterval(autoScratchInterval)
+}
+},30)
 }
 
 }
@@ -298,6 +214,43 @@ async function claimVoucher(){
 const uid=auth.currentUser.uid
 
 try{
+// Fetch all vouchers when user scratches
+const snapshot=await db
+.collection("hotels")
+.doc("HOTEL_001")
+.collection("vouchers")
+.get()
+
+if(snapshot.empty){
+document.getElementById("title").innerText="No vouchers left"
+document.getElementById("discount").innerText=""
+return
+}
+
+const docs=snapshot.docs
+
+// Check if all vouchers are used
+const allUsed=docs.every(doc=>doc.data().used === true)
+
+if(allUsed){
+document.getElementById("title").innerText="Better luck next time"
+document.getElementById("discount").innerText=""
+return
+}
+
+// Filter to only unused vouchers
+const unusedDocs=docs.filter(doc=>doc.data().used !== true)
+
+// Pick random unused voucher
+const random=unusedDocs[Math.floor(Math.random()*unusedDocs.length)]
+
+voucherId=random.id
+voucherRef=random.ref
+
+const data=random.data()
+
+document.getElementById("title").innerText=data.title
+document.getElementById("discount").innerText=data.discount+"%"
 
 await db.runTransaction(async(t)=>{
 
