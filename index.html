@@ -101,36 +101,28 @@ let hasClaimed=false
 
 auth.signInAnonymously()
 
-auth.onAuthStateChanged(async(user)=>{
-
-if(!user){
-// Handle auth failure - show error message
-document.getElementById("title").innerText="Authentication Error"
-document.getElementById("discount").innerText="Please refresh the page"
-return
-}
-
-try{
-// Set initial loading state
-document.getElementById("title").innerText="Loading..."
+// Initialize scratch card immediately for mobile compatibility
+document.getElementById("title").innerText="Scratch to reveal voucher"
 document.getElementById("discount").innerText=""
 
-// Add timeout for mobile devices to ensure initialization
+// Add timeout to ensure scratch card is always interactive
 setTimeout(()=>{
-if(document.getElementById("title").innerText === "Loading..."){
-// If still loading after 3 seconds, initialize anyway
+if(document.getElementById("title").innerText === "Scratch to reveal voucher"){
 initScratch()
 }
-}, 3000)
+}, 1000)
 
 // Initialize scratch card immediately for interaction
 initScratch()
 
-}catch(error){
-console.error("Error initializing scratch card:", error)
-document.getElementById("title").innerText="Error Loading"
-document.getElementById("discount").innerText="Please refresh the page"
+auth.onAuthStateChanged(async(user)=>{
+
+if(!user){
+console.log("Auth state changed: no user")
+return
 }
+
+console.log("Auth state changed: user authenticated")
 
 })
 
