@@ -103,14 +103,34 @@ auth.signInAnonymously()
 
 auth.onAuthStateChanged(async(user)=>{
 
-if(!user)return
+if(!user){
+// Handle auth failure - show error message
+document.getElementById("title").innerText="Authentication Error"
+document.getElementById("discount").innerText="Please refresh the page"
+return
+}
 
+try{
 // Set initial loading state
 document.getElementById("title").innerText="Loading..."
 document.getElementById("discount").innerText=""
 
+// Add timeout for mobile devices to ensure initialization
+setTimeout(()=>{
+if(document.getElementById("title").innerText === "Loading..."){
+// If still loading after 3 seconds, initialize anyway
+initScratch()
+}
+}, 3000)
+
 // Initialize scratch card immediately for interaction
 initScratch()
+
+}catch(error){
+console.error("Error initializing scratch card:", error)
+document.getElementById("title").innerText="Error Loading"
+document.getElementById("discount").innerText="Please refresh the page"
+}
 
 })
 
@@ -269,11 +289,9 @@ claimedAt:firebase.firestore.FieldValue.serverTimestamp()
 
 })
 
-// Remove alert - voucher is automatically claimed
-// alert("Voucher claimed!")
-
-}catch(e){
-console.log(e)
+}catch(error){
+console.error("Error claiming voucher:", error)
+// Don't show error to user, just log it
 }
 
 }
