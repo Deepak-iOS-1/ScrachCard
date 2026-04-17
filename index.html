@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Voucher Scratch Card</title>
 
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
@@ -10,67 +10,42 @@
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
 
 <style>
-
 body{
-font-family:Arial, sans-serif;
-display:flex;
-justify-content:center;
-align-items:center;
-height:100vh;
-background:#f5f5f5;
-margin:0;
-padding:20px;
-box-sizing:border-box;
+    font-family:Arial, sans-serif;
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    height:100vh;
+    background:#f5f5f5;
+    margin:0;
 }
 
 .card{
-width:90vw;
-max-width:320px;
-height:200px;
-background:#3F6285;
-color:white;
-border-radius:12px;
-display:flex;
-flex-direction:column;
-justify-content:center;
-align-items:center;
-font-size:28px;
-position:relative;
-overflow:hidden;
-box-shadow:0 4px 6px rgba(0,0,0,0.1);
+    width:90vw;
+    max-width:320px;
+    height:200px;
+    background:#3F6285;
+    color:white;
+    border-radius:12px;
+    display:flex;
+    flex-direction:column;
+    justify-content:center;
+    align-items:center;
+    position:relative;
+    overflow:hidden;
 }
+
+.title{ font-size:20px; }
+.discount{ font-size:45px; font-weight:bold; }
 
 canvas{
-position:absolute;
-top:0;
-left:0;
+    position:absolute;
+    top:0;
+    left:0;
+    width:100%;
+    height:100%;
+    touch-action:none;
 }
-
-.title{
-font-size:22px;
-}
-
-.discount{
-font-size:50px;
-font-weight:bold;
-}
-
-/* Mobile-specific styles */
-@media (max-width: 480px) {
-    .card{
-        width:100%;
-        height:180px;
-    }
-    
-    .discount{
-        font-size:40px;
-    }
-    
-    .title{
-        font-size:18px;
-    }
-}
-
 </style>
 </head>
 
@@ -80,210 +55,175 @@ font-weight:bold;
     <div class="title" id="title">Loading...</div>
     <div class="discount" id="discount"></div>
     <canvas id="scratch"></canvas>
-    
 </div>
 
 <script>
 
+// 🔥 Firebase Config
 firebase.initializeApp({
-apiKey:"AIzaSyAAkMO0zICxPTPQ_fTADGhzA6DsGw1TCaU",
+   apiKey:"AIzaSyAAkMO0zICxPTPQ_fTADGhzA6DsGw1TCaU",
 authDomain:"humvoucher.firebaseapp.com",
 projectId:"humvoucher"
-})
+});
 
-const auth=firebase.auth()
-const db=firebase.firestore()
+const auth = firebase.auth();
+const db = firebase.firestore();
 
-let voucherId=null
-let voucherRef=null
-let isScratching=false
-let hasClaimed=false
+let uid = null;
+let isAuthReady = false;
+let hasClaimed = false;
 
-auth.signInAnonymously()
+// ✅ Anonymous Login
+auth.signInAnonymously();
 
-// Initialize scratch card immediately for mobile compatibility
-document.getElementById("title").innerText="Scratch to reveal voucher"
-document.getElementById("discount").innerText=""
+auth.onAuthStateChanged(user=>{
+    if(user){
+        uid = user.uid;
+        isAuthReady = true;
+        document.getElementById("title").innerText="Scratch to reveal voucher";
+        initScratch();
+    }
+});
 
-// Add timeout to ensure scratch card is always interactive
-setTimeout(()=>{
-if(document.getElementById("title").innerText === "Scratch to reveal voucher"){
-initScratch()
-}
-}, 1000)
-
-// Initialize scratch card immediately for interaction
-initScratch()
-
-auth.onAuthStateChanged(async(user)=>{
-
-if(!user){
-console.log("Auth state changed: no user")
-return
-}
-
-console.log("Auth state changed: user authenticated")
-
-})
-
+// 🎯 Scratch Logic
 function initScratch(){
 
-const canvas=document.getElementById("scratch")
-const ctx=canvas.getContext("2d")
+const canvas = document.getElementById("scratch");
+const ctx = canvas.getContext("2d");
 
-canvas.width=320
-canvas.height=200
+// Dynamic size
+canvas.width = canvas.offsetWidth;
+canvas.height = canvas.offsetHeight;
 
-ctx.fillStyle="#C0C0C0"
-ctx.fillRect(0,0,canvas.width,canvas.height)
+// Grey layer
+ctx.fillStyle = "#C0C0C0";
+ctx.fillRect(0,0,canvas.width,canvas.height);
 
-ctx.globalCompositeOperation="destination-out"
+ctx.globalCompositeOperation = "destination-out";
 
-// Auto-scratch when 30% is reached
-let autoScratchInterval=null
+let scratching = false;
 
-let scratching=false
+canvas.addEventListener("mousedown",()=>scratching=true);
+canvas.addEventListener("mouseup",()=>{scratching=false;check();});
+canvas.addEventListener("mousemove",scratch);
 
-canvas.addEventListener("mousedown",()=>{scratching=true})
-canvas.addEventListener("mouseup",()=>{scratching=false;checkScratch()})
-canvas.addEventListener("mousemove",scratch)
+canvas.addEventListener("touchstart",()=>scratching=true);
+canvas.addEventListener("touchend",()=>{scratching=false;check();});
 
-canvas.addEventListener("touchstart",()=>{scratching=true})
-canvas.addEventListener("touchend",()=>{scratching=false;checkScratch()})
 canvas.addEventListener("touchmove",(e)=>{
-scratch(e.touches[0])
-})
+    e.preventDefault();
+    scratch(e.touches[0]);
+},{passive:false});
 
 function scratch(e){
+    if(!scratching || hasClaimed) return;
 
-if(!scratching || hasClaimed)return
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
 
-const rect=canvas.getBoundingClientRect()
+    ctx.beginPath();
+    ctx.arc(x,y,20,0,Math.PI*2);
+    ctx.fill();
 
-const x=e.clientX-rect.left
-const y=e.clientY-rect.top
-
-ctx.beginPath()
-ctx.arc(x,y,20,0,Math.PI*2)
-ctx.fill()
-
-checkScratch()
-
+    check();
 }
 
-function checkScratch(){
-if(hasClaimed)return
+function check(){
+    if(hasClaimed) return;
 
-const pixels=ctx.getImageData(0,0,canvas.width,canvas.height)
+    const pixels = ctx.getImageData(0,0,canvas.width,canvas.height);
+    let transparent = 0;
 
-let transparent=0
+    for(let i=3;i<pixels.data.length;i+=4){
+        if(pixels.data[i] === 0) transparent++;
+    }
 
-for(let i=3;i<pixels.data.length;i+=4){
-if(pixels.data[i]==0)transparent++
-}
+    const percent = transparent/(pixels.data.length/4);
 
-const percent=transparent/(pixels.data.length/4)
-
-if(percent>0.30){
-if(!hasClaimed){
-hasClaimed=true
-autoScratch(ctx, canvas)
-claimVoucher()
-}
-}
+    if(percent > 0.30){
+        hasClaimed = true;
+        autoScratch(ctx, canvas);
+        claimVoucher();
+    }
 }
 
 function autoScratch(ctx, canvas){
-// Auto-scratch the remaining area continuously
-const autoScratchInterval=setInterval(()=>{
-// Random scratch points for continuous effect
-for(let i=0;i<30;i++){
-const x=Math.random()*canvas.width
-const y=Math.random()*canvas.height
-ctx.beginPath()
-ctx.arc(x,y,12,0,Math.PI*2)
-ctx.fill()
-}
+    const interval = setInterval(()=>{
+        for(let i=0;i<30;i++){
+            const x = Math.random()*canvas.width;
+            const y = Math.random()*canvas.height;
+            ctx.beginPath();
+            ctx.arc(x,y,12,0,Math.PI*2);
+            ctx.fill();
+        }
 
-// Check if fully revealed
-const pixels=ctx.getImageData(0,0,canvas.width,canvas.height)
-let transparent=0
-for(let i=3;i<pixels.data.length;i+=4){
-if(pixels.data[i]==0)transparent++
-}
-const percent=transparent/(pixels.data.length/4)
+        const pixels = ctx.getImageData(0,0,canvas.width,canvas.height);
+        let transparent = 0;
 
-if(percent>0.95){
-clearInterval(autoScratchInterval)
-}
-},30)
+        for(let i=3;i<pixels.data.length;i+=4){
+            if(pixels.data[i] === 0) transparent++;
+        }
+
+        if(transparent/(pixels.data.length/4) > 0.95){
+            clearInterval(interval);
+        }
+    },30);
 }
 
 }
 
+// 🎁 Claim Voucher
 async function claimVoucher(){
 
-const uid=auth.currentUser.uid
+if(!isAuthReady){
+    alert("Please wait...");
+    return;
+}
 
 try{
-// Fetch all vouchers when user scratches
-const snapshot=await db
+
+const snapshot = await db
 .collection("hotels")
 .doc("HOTEL_001")
 .collection("vouchers")
-.get()
+.where("used","==",false)
+.limit(10)
+.get();
 
 if(snapshot.empty){
-document.getElementById("title").innerText="No vouchers left"
-document.getElementById("discount").innerText=""
-return
+    document.getElementById("title").innerText="No vouchers left";
+    return;
 }
 
-const docs=snapshot.docs
+const docs = snapshot.docs;
+const random = docs[Math.floor(Math.random()*docs.length)];
 
-// Check if all vouchers are used
-const allUsed=docs.every(doc=>doc.data().used === true)
+const voucherRef = random.ref;
+const data = random.data();
 
-if(allUsed){
-document.getElementById("title").innerText="Better luck next time"
-document.getElementById("discount").innerText=""
-return
-}
+document.getElementById("title").innerText = data.title;
+document.getElementById("discount").innerText = data.discount + "%";
 
-// Filter to only unused vouchers
-const unusedDocs=docs.filter(doc=>doc.data().used !== true)
+await db.runTransaction(async (t)=>{
 
-// Pick random unused voucher
-const random=unusedDocs[Math.floor(Math.random()*unusedDocs.length)]
+    const doc = await t.get(voucherRef);
 
-voucherId=random.id
-voucherRef=random.ref
+    if(doc.data().used){
+        throw "Already used";
+    }
 
-const data=random.data()
+    t.update(voucherRef,{
+        used:true,
+        claimedBy:uid,
+        claimedAt:firebase.firestore.FieldValue.serverTimestamp()
+    });
 
-document.getElementById("title").innerText=data.title
-document.getElementById("discount").innerText=data.discount+"%"
-
-await db.runTransaction(async(t)=>{
-
-const doc=await t.get(voucherRef)
-
-if(doc.data().used){
-// Voucher already used - this shouldn't happen with our auto-scratch, but just in case
-return
-}
-
-t.update(voucherRef,{
-used:true,
-claimedBy:uid,
-claimedAt:firebase.firestore.FieldValue.serverTimestamp()
-})
-
-})
+});
 
 }catch(error){
-console.error("Error claiming voucher:", error)
-// Don't show error to user, just log it
+    console.error(error);
+    alert("Error: " + error);
 }
 
 }
